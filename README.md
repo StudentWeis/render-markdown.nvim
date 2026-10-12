@@ -1167,6 +1167,7 @@ For a transparent box with a language label, use:
 ```lua
 require('render-markdown').setup({ code = {
     border = 'box',
+    sign = false,
     width = 'block',
     disable_background = true,
     highlight_border = 'Comment',
@@ -1175,7 +1176,9 @@ require('render-markdown').setup({ code = {
 
 Box borders use the foreground of `highlight_border` and add one space inside
 both sides, in addition to `left_pad` and `right_pad`. Language icons, info,
-position, and surrounding text use the existing language options. The characters
+position, and surrounding text use the existing language options. Icons keep
+their provider colors (or `highlight_language` override) when the title is
+truncated in a narrow window. The characters
 are `┌─┐`, `│`, and `└─┘`; `above`, `below`, and `language_border` do not apply.
 
 The box fits the narrowest window showing the buffer in the current tab. If the

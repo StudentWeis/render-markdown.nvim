@@ -290,4 +290,78 @@ describe('code box', function()
         })
         assert.same(0, vim.fn.winsaveview().leftcol)
     end)
+    it(
+        'resolves extension icons and keeps their color separate from the frame',
+        function()
+            local icon = require('mini.icons').get('filetype', 'python')
+            setup({ '```py', 'x', '```' }, { code = { language_icon = true } })
+            util.assert_screen({
+                '┌─ ' .. icon .. ' py ─┐',
+                '│ x      │',
+                '└────────┘',
+            })
+            assert.is_true(vim.fn.screenattr(1, 1) ~= vim.fn.screenattr(1, 4))
+            local marks = vim.api.nvim_buf_get_extmarks(
+                0,
+                require('render-markdown.core.ui').ns,
+                0,
+                -1,
+                { details = true }
+            )
+            local _, highlight = require('mini.icons').get('filetype', 'python')
+            local found = false
+            for _, mark in ipairs(marks) do
+                for _, chunk in ipairs(mark[4].virt_text or {}) do
+                    if chunk[1]:find(icon, 1, true) then
+                        assert.same(highlight, chunk[2])
+                        found = true
+                    end
+                end
+            end
+            assert.is_true(found)
+        end
+    )
+
+    it(
+        'retains colored icons when a narrow window truncates the title',
+        function()
+            local icon = require('mini.icons').get('filetype', 'lua')
+            setup({ '```lua', 'local answer = 42', '```' }, {
+                code = { language_icon = true },
+            })
+            vim.cmd('vsplit')
+            local narrow = vim.api.nvim_get_current_win()
+            vim.api.nvim_win_set_width(narrow, 5)
+            require('render-markdown').render({
+                buf = vim.api.nvim_get_current_buf(),
+            })
+            vim.wait(0)
+            vim.cmd('redraw')
+            local info = vim.fn.getwininfo(narrow)[1]
+            local title = ''
+            for col = info.wincol, info.wincol + 4 do
+                title = title .. vim.fn.screenstring(info.winrow, col)
+            end
+            assert.same('─ ' .. icon .. ' ─', title)
+            assert.is_true(
+                vim.fn.screenattr(info.winrow, info.wincol)
+                    ~= vim.fn.screenattr(info.winrow, info.wincol + 2)
+            )
+            vim.cmd('only')
+        end
+    )
+
+    it('renders the label when an icon provider returns no icon', function()
+        local icons = require('render-markdown.lib.icons')
+        local getter = require('luassert.stub').new(icons, 'get', function()
+            return nil, nil
+        end)
+        setup({ '```lua', 'x', '```' }, { code = { language_icon = true } })
+        getter:revert()
+        util.assert_screen({
+            '┌─ lua ─┐',
+            '│ x     │',
+            '└───────┘',
+        })
+    end)
 end)
