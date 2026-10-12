@@ -1,5 +1,6 @@
 local Base = require('render-markdown.render.base')
 local colors = require('render-markdown.core.colors')
+local compat = require('render-markdown.lib.compat')
 local env = require('render-markdown.lib.env')
 local icons = require('render-markdown.lib.icons')
 local str = require('render-markdown.lib.str')
@@ -95,6 +96,11 @@ function Render:run()
     local above = self.node:child('fenced_code_block_delimiter', start_row)
     local below = self.node:child('fenced_code_block_delimiter', end_row)
 
+    if self.config.border == 'box' and compat.has_10 then
+        self:box(above, below)
+        return
+    end
+
     if self.config.conceal_delimiters then
         self.marks:over(self.config, true, self.data.info, { conceal = '' })
         self.marks:over(self.config, true, above, { conceal = '' })
@@ -115,18 +121,12 @@ function Render:run()
 end
 
 ---@private
----@param delim? render.md.Node
----@return boolean
-function Render:language(delim)
-    if not self.config.language then
-        return false
-    end
-
-    local info = self.data.info
-    local language = self.data.language
-    local padding = self.data.language_padding
-    if not info or not language or not delim then
-        return false
+---@param border_hl? string
+---@return render.md.Line
+function Render:language_text(border_hl)
+    local info, language = self.data.info, self.data.language
+    if not self.config.language or not info or not language then
+        return self:line()
     end
 
     local icon, icon_hl = icons.get(language.text)
@@ -137,11 +137,9 @@ function Render:language(delim)
 
     local language_hl = { icon_hl or self.config.highlight_fallback } ---@type string[]
     local info_hl = { self.config.highlight_info } ---@type string[]
-    local border_hl = self.config.highlight_border or nil
     if border_hl then
         language_hl[#language_hl + 1] = border_hl
         info_hl[#info_hl + 1] = border_hl
-        border_hl = colors.bg_as_fg(border_hl)
     end
 
     local text = self:line()
@@ -159,13 +157,32 @@ function Render:language(delim)
             :text(info.text:sub(language.end_col - offset + 1), info_hl)
     end
     if text:empty() then
-        return false
+        return self:line()
     end
 
-    local body = self:line()
-        :text(self.config.language_left, border_hl)
+    local surround = border_hl and colors.bg_as_fg(border_hl)
+    return self:line()
+        :text(self.config.language_left, surround)
         :extend(text)
-        :text(self.config.language_right, border_hl)
+        :text(self.config.language_right, surround)
+end
+
+---@private
+---@param delim? render.md.Node
+---@return boolean
+function Render:language(delim)
+    if not delim then
+        return false
+    end
+    local border_hl = self.config.highlight_border or nil
+    local body = self:language_text(border_hl)
+    if body:empty() then
+        return false
+    end
+    if border_hl then
+        border_hl = colors.bg_as_fg(border_hl)
+    end
+    local padding = self.data.language_padding
 
     -- code blocks can pick up varying amounts of leading white space
     -- this is lumped into the delimiter node and needs to be handled
@@ -200,6 +217,177 @@ function Render:language(delim)
 end
 
 ---@private
+---@param above? render.md.Node
+---@param below? render.md.Node
+function Render:box(above, below)
+    -- Incomplete or visible fences remain source, including their body.
+    if not above or not below or not self.config.conceal_delimiters then
+        return
+    end
+    local highlight = self.config.highlight_border
+    if not highlight then
+        return
+    end
+    local buf = self.context.buf
+    local lines = vim.api.nvim_buf_get_lines(
+        buf,
+        above.start_row,
+        below.start_row + 1,
+        false
+    )
+    local col = above:col()
+    local prefix = lines[1]:sub(1, col)
+    if below:col() ~= col or lines[#lines]:sub(1, col) ~= prefix then
+        return
+    end
+    local indent = str.width(prefix)
+    local margin = self.data.margin
+    local left = 1 + self.data.padding
+    local right = 1 + self:offset(self.config.right_pad, self.data.body)
+    local start = indent + self:indent():size() + margin + 1 + left
+    local rows = {} ---@type { col: integer, pad: integer, width: integer }[]
+    local width = 0
+    for i = 2, #lines - 1 do
+        local line = lines[i]
+        local offset = math.min(col, #line)
+        -- A container's blank line may omit some or all trailing indentation.
+        if line:sub(1, offset) ~= prefix:sub(1, offset) then
+            return
+        end
+        local row = above.start_row + i - 1
+        local text = line:sub(offset + 1)
+        local body = {
+            text = text,
+            start_row = row,
+            start_col = offset,
+            end_row = row,
+            end_col = #line,
+        }
+        local size = vim.fn.strdisplaywidth(text, start)
+            + self.context.inline:width(body)
+            - self.context.conceal:get(body)
+        rows[#rows + 1] = {
+            col = offset,
+            pad = indent - str.width(line:sub(1, offset)),
+            width = size,
+        }
+        width = math.max(width, size)
+    end
+
+    -- Buffer extmarks are shared by windows. Fit the narrowest visible split.
+    local available = env.win.width(self.context.win)
+    for _, win in ipairs(env.buf.wins(buf)) do
+        if
+            vim.api.nvim_win_get_tabpage(win)
+            == vim.api.nvim_get_current_tabpage()
+        then
+            available = math.min(available, env.win.width(win))
+        end
+    end
+    available = available - indent - self:indent():size() - margin
+    if available < 2 then
+        return
+    end
+    local label = self:language_text()
+    if not label:empty() then
+        label = self:line():pad(1):extend(label):pad(1)
+    end
+    local language_pad = math.max(1, self.data.language_padding)
+    width = math.max(
+        width + left + right + 2,
+        label:width() + language_pad * 2 + 2,
+        self.config.min_width
+    )
+    -- Nested Markdown can add virtual lines or render its own code boxes.
+    local language = self.data.language
+    local nested = require('render-markdown.state').nested
+        and language
+        and vim.treesitter.language.get_lang(language.text) == 'markdown'
+    local sides = width <= available and not nested
+    width = sides and self.config.width == 'block' and width or available
+    local inner = width - (sides and 2 or 0)
+    label = label:sub(1, math.max(0, inner - language_pad * 2))
+    local extra = inner - label:width()
+    local leading = math.min(language_pad, extra)
+    if label:empty() then
+        leading = 0
+    elseif self.config.position == 'right' then
+        leading = extra - leading
+    elseif self.config.position == 'center' then
+        leading = math.floor(extra / 2)
+    end
+    local top = self:line()
+        :pad(margin)
+        :text(sides and '┌' or '', highlight)
+        :rep('─', leading, highlight)
+        :extend(label)
+        :rep('─', extra - leading, highlight)
+        :text(sides and '┐' or '', highlight)
+    local bottom = self:line()
+        :pad(margin)
+        :text(sides and '└' or '', highlight)
+        :rep('─', inner, highlight)
+        :text(sides and '┘' or '', highlight)
+    self:box_mark(
+        above.start_row,
+        col,
+        top,
+        #lines[1],
+        label:empty() and 'code_border' or 'code_language'
+    )
+    self:box_mark(below.start_row, col, bottom, #lines[#lines])
+    -- Long lines retain their original positions and wrapping behavior.
+    if not sides then
+        return
+    end
+    local background = self:enabled(self.config.disable_background)
+    for i, row in ipairs(rows) do
+        local line = lines[i + 1]
+        local index = above.start_row + i
+        local inset = self.config.background_inset
+        local hl = background
+                and i >= inset
+                and #lines - i - 1 >= inset
+                and self.config.highlight
+            or nil
+        local before = self:line()
+            :pad(row.pad + margin)
+            :text('│', highlight)
+            :pad(left, hl)
+        local after =
+            self:line():pad(inner - left - row.width, hl):text('│', highlight)
+        if row.col == #line then
+            self:box_mark(index, row.col, before:extend(after), #line)
+        else
+            self:box_mark(index, row.col, before)
+            self:box_mark(index, #line, after)
+            if hl then
+                self.marks:add(self.config, 'code_background', index, row.col, {
+                    end_col = #line,
+                    hl_group = hl,
+                    priority = self.config.priority,
+                })
+            end
+        end
+    end
+end
+
+---@private
+---@param row integer
+---@param col integer
+---@param line render.md.Line
+---@param end_col? integer
+---@param element? render.md.Element
+function Render:box_mark(row, col, line, end_col, element)
+    self.marks:add(self.config, element or 'code_border', row, col, {
+        virt_text = line:get(),
+        virt_text_pos = end_col and 'overlay' or 'inline',
+        end_col = end_col,
+        conceal = end_col and '' or nil,
+    })
+end
+
+---@private
 ---@param node? render.md.Node
 ---@param thin string
 function Render:border(node, thin)
@@ -215,7 +403,7 @@ function Render:border(node, thin)
     if not highlight then
         return
     end
-    local icon = kind == 'thin' and thin or ' '
+    local icon = (kind == 'thin' or kind == 'box') and thin or ' '
     highlight = icon == ' ' and highlight or colors.bg_as_fg(highlight)
     if not highlight then
         return

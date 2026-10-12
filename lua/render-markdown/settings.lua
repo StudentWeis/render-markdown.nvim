@@ -432,6 +432,7 @@ M.code.width = {
 
 ---@enum render.md.code.Border
 M.code.border = {
+    box = 'box',
     hide = 'hide',
     thin = 'thin',
     thick = 'thick',
@@ -497,11 +498,19 @@ M.code.default = {
     right_pad = 0,
     -- Minimum width to use for code blocks when width is 'block'.
     min_width = 0,
-    -- Determines how the top / bottom of code block are rendered.
+    -- Determines how the borders of code blocks are rendered.
     -- | none  | do not render a border                               |
     -- | thick | use the same highlight as the code body              |
     -- | thin  | when lines are empty overlay the above & below icons |
     -- | hide  | conceal lines unless language name or icon is added  |
+    -- | box   | draw a box around the code, with a language label    |
+    -- Box requires Neovim >= 0.10 (otherwise uses thin borders).
+    -- Requires conceal_delimiters and highlight_border; incomplete fences stay raw.
+    -- Adds one space inside each side, plus left_pad / right_pad.
+    -- Uses the foreground of highlight_border; ignores above, below, language_border.
+    -- Fits the narrowest split in the current tab. If code does not fit, only
+    -- horizontal borders are drawn, leaving the body unchanged. Nested Markdown
+    -- uses horizontal borders while nested rendering is enabled.
     border = 'hide',
     -- Used above code blocks to fill remaining space around language.
     language_border = '█',

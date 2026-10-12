@@ -493,11 +493,19 @@ require('render-markdown').setup({
         right_pad = 0,
         -- Minimum width to use for code blocks when width is 'block'.
         min_width = 0,
-        -- Determines how the top / bottom of code block are rendered.
+        -- Determines how the borders of code blocks are rendered.
         -- | none  | do not render a border                               |
         -- | thick | use the same highlight as the code body              |
         -- | thin  | when lines are empty overlay the above & below icons |
         -- | hide  | conceal lines unless language name or icon is added  |
+        -- | box   | draw a box around the code, with a language label    |
+        -- Box requires Neovim >= 0.10 (otherwise uses thin borders).
+        -- Requires conceal_delimiters and highlight_border; incomplete fences stay raw.
+        -- Adds one space inside each side, plus left_pad / right_pad.
+        -- Uses the foreground of highlight_border; ignores above, below, language_border.
+        -- Fits the narrowest split in the current tab. If code does not fit, only
+        -- horizontal borders are drawn, leaving the body unchanged. Nested Markdown
+        -- uses horizontal borders while nested rendering is enabled.
         border = 'hide',
         -- Used above code blocks to fill remaining space around language.
         language_border = '█',
@@ -1154,6 +1162,30 @@ require('render-markdown').setup({
 
 ## Code Blocks
 
+For a transparent box with a language label, use:
+
+```lua
+require('render-markdown').setup({ code = {
+    border = 'box',
+    width = 'block',
+    disable_background = true,
+    highlight_border = 'Comment',
+} })
+```
+
+Box borders use the foreground of `highlight_border` and add one space inside
+both sides, in addition to `left_pad` and `right_pad`. Language icons, info,
+position, and surrounding text use the existing language options. The characters
+are `┌─┐`, `│`, and `└─┘`; `above`, `below`, and `language_border` do not apply.
+
+The box fits the narrowest window showing the buffer in the current tab. If the
+content does not fit, only horizontal borders are drawn and the body is left
+unchanged. Nested Markdown also uses horizontal borders when `nested = true`,
+since its rendered content can include virtual lines. Incomplete fences,
+inconsistent container prefixes, `conceal_delimiters = false`, or
+`highlight_border = false` leave the block unchanged. Box borders require Neovim
+0.10 or later; older versions use thin borders.
+
 [Wiki Page](https://github.com/MeanderingProgrammer/render-markdown.nvim/wiki/CodeBlocks)
 
 <details>
@@ -1212,11 +1244,19 @@ require('render-markdown').setup({
         right_pad = 0,
         -- Minimum width to use for code blocks when width is 'block'.
         min_width = 0,
-        -- Determines how the top / bottom of code block are rendered.
+        -- Determines how the borders of code blocks are rendered.
         -- | none  | do not render a border                               |
         -- | thick | use the same highlight as the code body              |
         -- | thin  | when lines are empty overlay the above & below icons |
         -- | hide  | conceal lines unless language name or icon is added  |
+        -- | box   | draw a box around the code, with a language label    |
+        -- Box requires Neovim >= 0.10 (otherwise uses thin borders).
+        -- Requires conceal_delimiters and highlight_border; incomplete fences stay raw.
+        -- Adds one space inside each side, plus left_pad / right_pad.
+        -- Uses the foreground of highlight_border; ignores above, below, language_border.
+        -- Fits the narrowest split in the current tab. If code does not fit, only
+        -- horizontal borders are drawn, leaving the body unchanged. Nested Markdown
+        -- uses horizontal borders while nested rendering is enabled.
         border = 'hide',
         -- Used above code blocks to fill remaining space around language.
         language_border = '█',
